@@ -501,7 +501,6 @@ elif menu == "Integrasi Numerik":
         b_val = st.number_input("Batas Atas (b):", value=1.0)
         n_val = st.number_input("Jumlah Segmen (N):", value=6, min_value=1, step=1)
 
-        # Validasi N secara real-time
         st.caption("Syarat N:")
         st.caption("• Trapesium: Bebas")
         st.caption(f"• Simpson 1/3: Genap ({'✅ OK' if n_val % 2 == 0 else '❌ Invalid'})")
@@ -509,7 +508,6 @@ elif menu == "Integrasi Numerik":
 
     with col2:
         st.info("Menghitung Luas Area di bawah kurva.")
-        # Hitung Exact Value SymPy
         exact_int, func_latex = get_symbolic_deriv_or_integ(func_int, "integrate", a=a_val, b=b_val)
         if exact_int is not None:
             st.success(f"**True Value (SymPy):** {exact_int:.8f}")
@@ -520,10 +518,9 @@ elif menu == "Integrasi Numerik":
     if st.button("Hitung Integral"):
         st.divider()
 
-        # Tabulasi untuk tiap metode
         tab_trap, tab_s13, tab_s38 = st.tabs(["Trapesium", "Simpson 1/3", "Simpson 3/8"])
 
-        # Trapesium
+        # --- 1. TRAPESIUM ---
         with tab_trap:
             st.markdown("##### Rumus Trapesium:")
             st.latex(r"I = (b - a) \frac{f(x_0) + 2 \sum_{i=1}^{n-1} f(x_i) + f(x_n)}{2n}")
@@ -541,10 +538,11 @@ elif menu == "Integrasi Numerik":
                 st.write("Tabel Iterasi:")
                 st.dataframe(df_iter)
 
-        # Simpson 1/3
+        # --- 2. SIMPSON 1/3 ---
         with tab_s13:
             st.markdown("##### Rumus Simpson 1/3:")
-            st.latex(r"I \cong (b - a) \frac{f(x_0) + 4 \sum_{i=1,3,5}^{n-1} f(x_i) + 2 \sum_{j=2,4,6}^{n-2} f(x_j) + f(x_n)}{3n}")
+            st.latex(
+                r"I \cong (b - a) \frac{f(x_0) + 4 \sum_{i=1,3,5}^{n-1} f(x_i) + 2 \sum_{j=2,4,6}^{n-2} f(x_j) + f(x_n)}{3n}")
             res, df_iter, err_msg = integration_solver("Simpson 1/3", func_int, a_val, b_val, n_val)
             if err_msg:
                 st.error(f"⚠️ {err_msg}")
@@ -559,7 +557,7 @@ elif menu == "Integrasi Numerik":
                 st.write("Tabel Iterasi:")
                 st.dataframe(df_iter)
 
-        # Simpson 3/8
+        # --- 3. SIMPSON 3/8 ---
         with tab_s38:
             st.markdown("##### Rumus Simpson 3/8:")
             st.latex(r"I \cong (b - a) \frac{f(x_0) + 3f(x_1) + 3f(x_2) + f(x_3)}{8}")
@@ -577,7 +575,7 @@ elif menu == "Integrasi Numerik":
                 st.write("Tabel Iterasi:")
                 st.dataframe(df_iter)
 
-        # Visualisasi Integrasi
+        # --- VISUALISASI AREA ---
         st.markdown("---")
         st.subheader("Visualisasi Area")
         x_plot = np.linspace(a_val, b_val, 200)
@@ -587,13 +585,12 @@ elif menu == "Integrasi Numerik":
         ax.plot(x_plot, y_plot, 'k-', label=f'f(x)={func_int}')
         ax.fill_between(x_plot, y_plot, alpha=0.3, color='cyan', label='Area Integral')
 
-        # Gambar garis segmen (untuk visualisasi pias)
         h = (b_val - a_val) / n_val
         for i in range(n_val + 1):
             xi = a_val + i * h
             yi = get_function_val(func_int, xi)
             ax.vlines(x=xi, ymin=0, ymax=yi, color='blue', linestyle='--', alpha=0.5)
-            if i == 0 or i == n_val:  # Label batas
+            if i == 0 or i == n_val:
                 ax.text(xi, yi, f"{xi:.2f}", fontsize=8, ha='center', va='bottom')
 
         ax.set_xlabel('x')
@@ -602,3 +599,56 @@ elif menu == "Integrasi Numerik":
         ax.legend()
         ax.grid(True, alpha=0.3)
         st.pyplot(fig)
+
+        # --- VISUALISASI ERROR VS H (NEW FEATURE) ---
+        st.markdown("---")
+        st.subheader("Analisis Sensitivitas Error terhadap Step Size (h)")
+
+        if exact_int is not None:
+            # Simulasi variasi N (menggunakan kelipatan 6 agar semua metode jalan)
+            n_simulations = np.array([6, 12, 18, 24, 30, 60, 120])
+            h_sims = []
+
+            err_trap_sim = []
+            err_s13_sim = []
+            err_s38_sim = []
+
+            # Progress bar untuk simulasi
+            prog_bar = st.progress(0)
+
+            for idx, n_sim in enumerate(n_simulations):
+                # Hitung h
+                h_curr = (b_val - a_val) / n_sim
+                h_sims.append(h_curr)
+
+                # Hitung integral 3 metode
+                r_trap, _, _ = integration_solver("Trapesium", func_int, a_val, b_val, n_sim)
+                r_s13, _, _ = integration_solver("Simpson 1/3", func_int, a_val, b_val, n_sim)
+                r_s38, _, _ = integration_solver("Simpson 3/8", func_int, a_val, b_val, n_sim)
+
+                # Simpan Error
+                err_trap_sim.append(abs(exact_int - r_trap))
+                err_s13_sim.append(abs(exact_int - r_s13))
+                err_s38_sim.append(abs(exact_int - r_s38))
+
+                prog_bar.progress((idx + 1) / len(n_simulations))
+
+            # Plotting
+            fig_err, ax_err = plt.subplots(figsize=(10, 5))
+            ax_err.loglog(h_sims, err_trap_sim, 'o-', color='red', label='Trapesium')
+            ax_err.loglog(h_sims, err_s13_sim, 's-', color='green', label='Simpson 1/3')
+            ax_err.loglog(h_sims, err_s38_sim, '^-', color='blue', label='Simpson 3/8')
+
+            ax_err.set_xlabel('Step Size ($h$)')
+            ax_err.set_ylabel('Absolute Error')
+            ax_err.set_title('Grafik Konvergensi: Error vs Step Size')
+            ax_err.legend()
+            ax_err.grid(True, which="both", ls="--", alpha=0.4)
+
+            # Invert X axis agar h mengecil ke kanan (sesuai request: semakin kecil h, error makin kecil)
+            ax_err.invert_xaxis()
+
+            st.pyplot(fig_err)
+            st.caption("Catatan: Grafik Log-Log. Semakin ke kanan (h mengecil), error semakin turun.")
+        else:
+            st.warning("Analisis Error tidak dapat dilakukan karena Nilai Eksak tidak valid.")
