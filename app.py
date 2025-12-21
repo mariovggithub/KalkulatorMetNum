@@ -6,13 +6,9 @@ import sympy as sp
 import math
 
 
-# ==========================================
-# 1. BACKEND LOGIC (HELPER FUNCTIONS)
-# ==========================================
-
 def get_function_val(func_str, x_val):
     """
-    Evaluasi fungsi string menjadi nilai float.
+    Fungsi string diubah jadi nilai float.
     """
     try:
         safe_dict = {
@@ -29,25 +25,32 @@ def get_function_val(func_str, x_val):
     except Exception:
         return None
 
-
-def get_symbolic_derivative(func_str, x_val):
+def get_symbolic_deriv_or_integ(func_str, op_type="diff", x_val=None, a=None, b=None):
+    """
+    - op_type='diff': Hitung turunan di x_val
+    - op_type='integrate': Hitung integral dari a ke b
+    """
     try:
         x = sp.symbols('x')
         clean_str = func_str.replace("e**", "E**").replace("e*", "E*").replace("(e)", "(E)")
         if clean_str == "e": clean_str = "E"
-        clean_str = clean_str.replace("ln(", "NATURAL_LOG(")
-        clean_str = clean_str.replace("log(", "log(10,")
-        clean_str = clean_str.replace("NATURAL_LOG(", "log(")
+        clean_str = clean_str.replace("ln(", "log(")
+
         expr = sp.sympify(clean_str)
-        derivative_expr = sp.diff(expr, x)
-        val = derivative_expr.subs(x, x_val)
-        exact_value = float(val.evalf())
-        return exact_value, sp.latex(derivative_expr)
+        # Diferensiasi
+        if op_type == "diff":
+            deriv_expr = sp.diff(expr, x)
+            val = deriv_expr.subs(x, x_val)
+            return float(val.evalf()), sp.latex(deriv_expr)
+        # Integrasi
+        elif op_type == "integrate":
+            integral_val = sp.integrate(expr, (x, a, b))
+            return float(integral_val.evalf()), sp.latex(expr)
+
     except Exception as e:
         return None, str(e)
 
-
-# --- Interpolasi Lagrange (Tetap) ---
+# Interpolasi Lagrange
 def lagrange_interpolation(x, y, x_target):
     n = len(x)
     result = 0
@@ -80,7 +83,7 @@ def lagrange_interpolation(x, y, x_target):
     return result, df
 
 
-# --- Interpolasi Newton (MODIFIED: Tabel Segitiga & Logic Error) ---
+# Interpolasi Newton
 def newton_interpolation_detailed(x, y, x_target):
     n = len(x)
 
@@ -120,7 +123,7 @@ def newton_interpolation_detailed(x, y, x_target):
             if i < n - j:
                 row[col_name] = dd_table[i, j]
             else:
-                row[col_name] = ""  # Kosongkan biar visualnya bagus
+                row[col_name] = ""
         display_data.append(row)
 
     df_display = pd.DataFrame(display_data)
@@ -128,7 +131,7 @@ def newton_interpolation_detailed(x, y, x_target):
 
 
 def eval_newton_poly(coef, x_data, x_val):
-    n = len(x_data)  # Hati-hati, len(coef) harus sama dengan len(x_data) yang dipakai membuat coef
+    n = len(x_data)
     result = coef[0]
     for i in range(1, len(coef)):
         term = coef[i]
@@ -138,15 +141,73 @@ def eval_newton_poly(coef, x_data, x_val):
     return result
 
 
-# ==========================================
-# 2. STREAMLIT UI (FRONTEND)
-# ==========================================
+def integration_solver(method, func_str, a, b, n):
+    """
+    Menghitung integral numerik sekaligus men-generate tabel iterasi.
+    """
+    h = (b - a) / n
+    x_points = [a + i * h for i in range(n + 1)]
+    y_points = [get_function_val(func_str, xi) for xi in x_points]
+
+    if None in y_points:
+        return None, None, "Error evaluasi fungsi (cek domain/sintaks)."
+
+    # Data untuk tabel iterasi
+    iter_data = []
+
+    total_sum = 0
+    weights = []
+
+    # Penentuan Bobot (Weight) berdasarkan Metode
+    if method == "Trapesium":
+        # Pola Bobot: 1, 2, 2, ..., 2, 1
+        weights = [1] + [2] * (n - 1) + [1]
+        multiplier = h / 2
+
+    elif method == "Simpson 1/3":
+        # Syarat N Genap
+        if n % 2 != 0: return None, None, "Simpson 1/3 wajib N Genap."
+        # Pola Bobot: 1, 4, 2, 4, 2, ..., 4, 1
+        weights = [1]
+        for i in range(1, n):
+            weights.append(4 if i % 2 != 0 else 2)
+        weights.append(1)
+        multiplier = h / 3
+
+    elif method == "Simpson 3/8":
+        # Syarat N Kelipatan 3
+        if n % 3 != 0: return None, None, "Simpson 3/8 wajib N Kelipatan 3."
+        # Pola Bobot: 1, 3, 3, 2, 3, 3, 2, ..., 3, 3, 1
+        weights = [1]
+        for i in range(1, n):
+            weights.append(2 if i % 3 == 0 else 3)
+        weights.append(1)
+        multiplier = 3 * h / 8
+
+    # Hitung Sum product
+    sigma_product = 0
+    for i in range(n + 1):
+        product = weights[i] * y_points[i]
+        sigma_product += product
+        iter_data.append({
+            "i": i,
+            "x": x_points[i],
+            "f(x)": y_points[i],
+            "Bobot (Coeff)": weights[i],
+            "Product": product
+        })
+
+    result = sigma_product * multiplier
+
+    df_iter = pd.DataFrame(iter_data)
+    return result, df_iter, None
+
 
 st.set_page_config(page_title="Project Metnum Kelompok", layout="wide")
 
 # Sidebar
 st.sidebar.title("Kalkulator Numerik")
-menu = st.sidebar.selectbox("Pilih Metode:", ["Home", "Interpolasi", "Diferensiasi Numerik"])
+menu = st.sidebar.selectbox("Pilih Metode:", ["Home", "Interpolasi", "Diferensiasi Numerik", "Integrasi Numerik"])
 
 if menu == "Home":
     st.title("Project Akhir Metode Numerik")
@@ -154,14 +215,11 @@ if menu == "Home":
     **Anggota Kelompok:**
     * Marco Alexander Tejo C14230262
     * Mario Vaun Goutama   C14230194
-
-    **Update Fitur:**
-    * **Newton:** Tabel Divided Difference format segitiga & Estimasi Error.
     """)
 
 elif menu == "Interpolasi":
     st.title("Metode Interpolasi")
-    st.caption("Metode: Lagrange [Cite: 8] & Newton (dengan Analisis Error) [Cite: 17]")
+    st.caption("Metode: Lagrange & Newton (dengan Analisis Error)")
 
     col1, col2 = st.columns(2)
     with col1:
@@ -171,7 +229,7 @@ elif menu == "Interpolasi":
         x_target = st.number_input("Target X:", value=2.0)
         method = st.radio("Metode:", ["Lagrange", "Newton"])
 
-        # FITUR BARU: Extra Point untuk Error Newton
+        # Extra Point untuk Error Newton
         calc_error = False
         x_extra, y_extra = None, None
 
@@ -201,7 +259,7 @@ elif menu == "Interpolasi":
             if st.button("Hitung Interpolasi"):
                 st.divider()
 
-                # --- ALGORITMA LAGRANGE ---
+                # Algoritma Lagrange
                 if method == "Lagrange":
                     res, df_steps = lagrange_interpolation(x_data, y_data, x_target)
                     st.success(f"Hasil Lagrange di x={x_target} adalah **{res:.6f}**")
@@ -212,7 +270,7 @@ elif menu == "Interpolasi":
                     x_plot = np.linspace(min(x_data) - 1, max(x_data) + 1, 100)
                     y_plot = [lagrange_interpolation(x_data, y_data, xi)[0] for xi in x_plot]
 
-                # --- ALGORITMA NEWTON ---
+                # Algoritma Newton
                 else:
                     # 1. Hitung Newton Data Utama
                     res, df_steps, coefs = newton_interpolation_detailed(x_data, y_data, x_target)
@@ -222,7 +280,7 @@ elif menu == "Interpolasi":
                     # Format tabel agar angka kosong tidak tampil sebagai NaN/0
                     st.dataframe(df_steps)
 
-                    # 2. Hitung Error (Jika dicentang)
+                    # 2. Hitung Error (kalau dicentang)
                     if calc_error:
                         # Gabungkan data utama + data extra
                         x_full = np.append(x_data, x_extra)
@@ -250,7 +308,7 @@ elif menu == "Interpolasi":
                     x_plot = np.linspace(min(x_data) - 1, max(x_data) + 1, 100)
                     y_plot = [eval_newton_poly(coefs, x_data, xi) for xi in x_plot]
 
-                # --- VISUALISASI UMUM ---
+                # Visualisasi interpolasi
                 st.subheader("Grafik")
                 fig, ax = plt.subplots()
                 ax.plot(x_plot, y_plot, 'b-', label='Interpolasi')
@@ -267,12 +325,12 @@ elif menu == "Interpolasi":
     except ValueError:
         st.error("Input harus berupa angka.")
 
-# --- HALAMAN DIFERENSIASI (Tetap Sama) ---
+# Diferensiasi
 elif menu == "Diferensiasi Numerik":
     st.title("🔢 Diferensiasi Numerik: High Accuracy + Analisis")
     st.markdown("Membandingkan metode **Standard** vs **High Accuracy** serta validasi nilai eksak.")
 
-    # --- 1. INPUT USER ---
+    # Input User
     col1, col2 = st.columns(2)
     with col1:
         st.subheader("Konfigurasi")
@@ -290,8 +348,8 @@ elif menu == "Diferensiasi Numerik":
             """)
 
     if st.button("Hitung Turunan"):
-        # A. Hitung Nilai Eksak (True Value) pakai SymPy
-        exact_val, deriv_latex = get_symbolic_derivative(func_str, x_val)
+        # Hitung True Value pakai SymPy
+        exact_val, deriv_latex = get_symbolic_deriv_or_integ(func_str, "diff", x_val)
 
         if exact_val is None:
             st.error(f"Error parsing fungsi: {deriv_latex}")
@@ -304,8 +362,7 @@ elif menu == "Diferensiasi Numerik":
             c1.markdown(f"**Turunan Simbolik:** $f'(x) = {deriv_latex}$")
             c2.metric("Nilai Eksak (True Value)", f"{exact_val:.8f}")
 
-            # B. Hitung Numerik (Standard & High Acc)
-            # Evaluasi titik stencil (x-2h s/d x+2h)
+            # Hitung Standard & High Acc
             f_x = get_function_val(func_str, x_val)
             f_xh = get_function_val(func_str, x_val + h_val)
             f_x2h = get_function_val(func_str, x_val + 2 * h_val)
@@ -325,7 +382,7 @@ elif menu == "Diferensiasi Numerik":
                 hi_bwd = (3 * f_x - 4 * f_xmh + f_xm2h) / (2 * h_val)
                 hi_cen = (-f_x2h + 8 * f_xh - 8 * f_xmh + f_xm2h) / (12 * h_val)
 
-                # C. Tabel Perbandingan Error
+                # Tabel Perbandingan Error
                 st.subheader("2. Perbandingan Numerik vs Eksak")
 
 
@@ -347,10 +404,10 @@ elif menu == "Diferensiasi Numerik":
 
                 df_res = pd.DataFrame(data_results, columns=["Metode", "Hasil Hitung", "Error (%)"])
 
-                # Menampilkan tabel dengan highlight error
+                # Output tabel dengan highlight error
                 st.dataframe(df_res.style.format({
                     "Hasil Hitung": "{:.8f}",
-                    "Error (%)": "{:.4f}%"  # Ubah format ini
+                    "Error (%)": "{:.4f}%"
                 }).background_gradient(subset=["Error (%)"], cmap="Reds"), use_container_width=True)
 
                 st.caption(f"*Error (%) = |(True - Numerik) / True| * 100. Semakin kecil semakin baik.")
@@ -360,7 +417,7 @@ elif menu == "Diferensiasi Numerik":
 
                 tab1, tab2, tab3 = st.tabs(["Kurva & Garis Singgung", "Analisis Step Size (Log-Log)", "Rumus Manual"])
 
-                # Tab 1: Visualisasi Konsep (Code 1 Style)
+                # Visualisasi Konsep
                 with tab1:
                     x_plot = np.linspace(x_val - 3 * h_val, x_val + 3 * h_val, 100)
                     y_plot = [get_function_val(func_str, xi) for xi in x_plot]
@@ -382,7 +439,7 @@ elif menu == "Diferensiasi Numerik":
                     st.pyplot(fig1)
                     st.caption("Garis putus-putus biru adalah taksiran garis singgung (turunan) pada titik x.")
 
-                # Tab 2: Analisis Error vs h (Code 2 Style)
+                # Analisis Error vs h
                 with tab2:
                     st.markdown("Grafik ini menunjukkan seberapa cepat Error turun jika **h** diperkecil.")
                     h_range = np.logspace(-1, -5, 20)  # h dari 0.1 sampai 0.00001
@@ -418,7 +475,7 @@ elif menu == "Diferensiasi Numerik":
                     st.info(
                         "Garis biru yang lebih curam menunjukkan metode High Accuracy jauh lebih cepat mencapai nilai eksak.")
 
-                # Tab 3: Rumus (Code 1 Style)
+                # Rumus
                 with tab3:
                     c1, c2 = st.columns(2)
                     with c1:
@@ -431,3 +488,117 @@ elif menu == "Diferensiasi Numerik":
                         st.latex(r"f'(x_i) = \frac{-f(x_{i+2}) + 4f(x_{i+1}) - 3f(x_i)}{2h}")
                         st.latex(r"f'(x_i) = \frac{3f(x_i) - 4f(x_{i-1}) + f(x_{i-2})}{2h}")
                         st.latex(r"f'(x_i) = \frac{-f(x_{i+2}) + 8f(x_{i+1}) - 8f(x_{i-1}) + f(x_{i-2})}{12h}")
+
+elif menu == "Integrasi Numerik":
+    st.title("∫ Integrasi Numerik")
+    st.caption("Metode: Trapesium, Simpson 1/3, Simpson 3/8")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("Konfigurasi")
+        func_int = st.text_input("Fungsi f(x):", "1 / (1 + x)", help="Contoh: x**2, sin(x), exp(x)")
+        a_val = st.number_input("Batas Bawah (a):", value=0.0)
+        b_val = st.number_input("Batas Atas (b):", value=1.0)
+        n_val = st.number_input("Jumlah Segmen (N):", value=6, min_value=1, step=1)
+
+        # Validasi N secara real-time
+        st.caption("Syarat N:")
+        st.caption("• Trapesium: Bebas")
+        st.caption(f"• Simpson 1/3: Genap ({'✅ OK' if n_val % 2 == 0 else '❌ Invalid'})")
+        st.caption(f"• Simpson 3/8: Kelipatan 3 ({'✅ OK' if n_val % 3 == 0 else '❌ Invalid'})")
+
+    with col2:
+        st.info("Menghitung Luas Area di bawah kurva.")
+        # Hitung Exact Value SymPy
+        exact_int, func_latex = get_symbolic_deriv_or_integ(func_int, "integrate", a=a_val, b=b_val)
+        if exact_int is not None:
+            st.success(f"**True Value (SymPy):** {exact_int:.8f}")
+            st.latex(r"\int_{" + str(a_val) + "}^{" + str(b_val) + "} " + func_latex + r"\,dx")
+        else:
+            st.warning("Gagal menghitung nilai eksak (fungsi terlalu kompleks/invalid).")
+
+    if st.button("Hitung Integral"):
+        st.divider()
+
+        # Tabulasi untuk tiap metode
+        tab_trap, tab_s13, tab_s38 = st.tabs(["Trapesium", "Simpson 1/3", "Simpson 3/8"])
+
+        # Trapesium
+        with tab_trap:
+            st.markdown("##### Rumus Trapesium:")
+            st.latex(r"I = (b - a) \frac{f(x_0) + 2 \sum_{i=1}^{n-1} f(x_i) + f(x_n)}{2n}")
+            res, df_iter, err_msg = integration_solver("Trapesium", func_int, a_val, b_val, n_val)
+            if err_msg:
+                st.error(err_msg)
+            else:
+                st.subheader(f"Hasil: {res:.8f}")
+                if exact_int:
+                    err_abs = abs(exact_int - res)
+                    err_rel = (err_abs / abs(exact_int)) * 100
+                    st.write(f"**Absolute Error (Ea):** {err_abs:.8f}")
+                    st.write(f"**Relative Error (Er):** {err_rel:.4f}%")
+
+                st.write("Tabel Iterasi:")
+                st.dataframe(df_iter)
+
+        # Simpson 1/3
+        with tab_s13:
+            st.markdown("##### Rumus Simpson 1/3:")
+            st.latex(r"I \cong (b - a) \frac{f(x_0) + 4 \sum_{i=1,3,5}^{n-1} f(x_i) + 2 \sum_{j=2,4,6}^{n-2} f(x_j) + f(x_n)}{3n}")
+            res, df_iter, err_msg = integration_solver("Simpson 1/3", func_int, a_val, b_val, n_val)
+            if err_msg:
+                st.error(f"⚠️ {err_msg}")
+            else:
+                st.subheader(f"Hasil: {res:.8f}")
+                if exact_int:
+                    err_abs = abs(exact_int - res)
+                    err_rel = (err_abs / abs(exact_int)) * 100
+                    st.write(f"**Absolute Error (Ea):** {err_abs:.8f}")
+                    st.write(f"**Relative Error (Er):** {err_rel:.4f}%")
+
+                st.write("Tabel Iterasi:")
+                st.dataframe(df_iter)
+
+        # Simpson 3/8
+        with tab_s38:
+            st.markdown("##### Rumus Simpson 3/8:")
+            st.latex(r"I \cong (b - a) \frac{f(x_0) + 3f(x_1) + 3f(x_2) + f(x_3)}{8}")
+            res, df_iter, err_msg = integration_solver("Simpson 3/8", func_int, a_val, b_val, n_val)
+            if err_msg:
+                st.error(f"⚠️ {err_msg}")
+            else:
+                st.subheader(f"Hasil: {res:.8f}")
+                if exact_int:
+                    err_abs = abs(exact_int - res)
+                    err_rel = (err_abs / abs(exact_int)) * 100
+                    st.write(f"**Absolute Error (Ea):** {err_abs:.8f}")
+                    st.write(f"**Relative Error (Er):** {err_rel:.4f}%")
+
+                st.write("Tabel Iterasi:")
+                st.dataframe(df_iter)
+
+        # Visualisasi Integrasi
+        st.markdown("---")
+        st.subheader("Visualisasi Area")
+        x_plot = np.linspace(a_val, b_val, 200)
+        y_plot = [get_function_val(func_int, xi) for xi in x_plot]
+
+        fig, ax = plt.subplots(figsize=(10, 4))
+        ax.plot(x_plot, y_plot, 'k-', label=f'f(x)={func_int}')
+        ax.fill_between(x_plot, y_plot, alpha=0.3, color='cyan', label='Area Integral')
+
+        # Gambar garis segmen (untuk visualisasi pias)
+        h = (b_val - a_val) / n_val
+        for i in range(n_val + 1):
+            xi = a_val + i * h
+            yi = get_function_val(func_int, xi)
+            ax.vlines(x=xi, ymin=0, ymax=yi, color='blue', linestyle='--', alpha=0.5)
+            if i == 0 or i == n_val:  # Label batas
+                ax.text(xi, yi, f"{xi:.2f}", fontsize=8, ha='center', va='bottom')
+
+        ax.set_xlabel('x')
+        ax.set_ylabel('f(x)')
+        ax.set_title(f"Integral f(x) dari {a_val} sampai {b_val}")
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        st.pyplot(fig)
