@@ -90,7 +90,7 @@ def newton_interpolation_detailed(x, y, x_target):
     # 1. Buat Matriks Divided Difference
     # Ukuran n x n (tapi kita hanya pakai separuh atas diagonal)
     dd_table = np.zeros((n, n))
-    dd_table[:, 0] = y  # Kolom ke-0 adalah f(xi)
+    dd_table[:, 0] = y
 
     # Hitung kolom selanjutnya
     for j in range(1, n):
