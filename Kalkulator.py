@@ -3,7 +3,7 @@ import math
 
 # FUNCTION TABEL
 def print_table(headers, rows):
-    col_widths = [len(str(h)) for h in headers]  # coba cobaa
+    col_widths =  [len(str(h)) for h in headers]  # coba cobaa
 
     for row in rows:
         for i, item in enumerate(row):
