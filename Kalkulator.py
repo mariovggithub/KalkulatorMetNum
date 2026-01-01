@@ -2,15 +2,15 @@ import math
 
 
 # FUNCTION TABEL
-def print_table(headers, rows):
-    col_widths = [len(str(h)) for h in headers]
+def print_table(header, rows):
+    col_widths = [len(str(h)) for h in header]
 
     for row in rows:
         for i, item in enumerate(row):
             col_widths[i] = max(col_widths[i], len(str(item)))
 
     format_row = " | ".join("{:<" + str(w) + "}" for w in col_widths)
-    print(format_row.format(*headers))
+    print(format_row.format(*header))
     print("-+-".join("-" * w for w in col_widths))
 
     for row in rows:
